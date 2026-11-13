@@ -3,7 +3,7 @@ const $ = id => document.getElementById(id), LS = localStorage;
 const esc = s => String(s ?? '').replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
 const p2 = n => String(n).padStart(2, '0'), iso = d => `${d.getFullYear()}-${p2(d.getMonth()+1)}-${p2(d.getDate())}`;
 const norm = s => String(s ?? '').normalize('NFD').replace(/[̀-ͯ]/g, '').toUpperCase().replace(/\s*_\s*/g, '_').replace(/["']/g, '').replace(/\s+/g, ' ').trim().replace(/\.$/, '');
-const APP_V = '1.8';
+const APP_V = '1.9';
 let M = null, firmado = false;
 
 /* ---------- almacenamiento local: IndexedDB (aguanta fotos), sin señal ---------- */
