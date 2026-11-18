@@ -3,7 +3,7 @@ const $ = id => document.getElementById(id), LS = localStorage;
 const esc = s => String(s ?? '').replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
 const p2 = n => String(n).padStart(2, '0'), iso = d => `${d.getFullYear()}-${p2(d.getMonth()+1)}-${p2(d.getDate())}`;
 const norm = s => String(s ?? '').normalize('NFD').replace(/[̀-ͯ]/g, '').toUpperCase().replace(/\s*_\s*/g, '_').replace(/["']/g, '').replace(/\s+/g, ' ').trim().replace(/\.$/, '');
-const APP_V = '1.9';
+const APP_V = '2.0';
 let M = null, firmado = false;
 
 /* ---------- almacenamiento local: IndexedDB (aguanta fotos), sin señal ---------- */
@@ -32,17 +32,36 @@ function iniciar() {
   $('j').innerHTML = opts(M.jefes); $('c').innerHTML = opts(M.cuadrillas);
   $('f').onchange = $('t').onchange = info;
   $('c').onchange = info; $('j').onchange = () => { const j = M.jefes.find(x => x.id === $('j').value); if (j && j.cuadrilla_id) $('c').value = j.cuadrilla_id; info(); };
-  info(); contar(); $('lineas').innerHTML = ''; agregar(); refrescar();
+  UID = crypto.randomUUID(); info(); contar(); $('lineas').innerHTML = ''; agregar(); refrescar();
 }
 function tchips() { $('tchips').innerHTML = `<input type="hidden" id="th" value="${esc($('t').value)}">` + M.turnos.map(x => `<button type="button" class="op${x.id === $('t').value ? ' on' : ''}" data-v="${esc(x.id)}">${esc(x.nombre)}${x.inicio ? ` <small>${esc(String(x.inicio).slice(0,5))}–${esc(String(x.fin).slice(0,5))}</small>` : ''}</button>`).join(''); }
+const MES = ['ene', 'feb', 'mar', 'abr', 'may', 'jun', 'jul', 'ago', 'sep', 'oct', 'nov', 'dic'], corto = f => `${+f.slice(8)} ${MES[+f.slice(5, 7) - 1]}`;
+let UID = crypto.randomUUID();                                              // un reporte = un uuid; su ID visible es SAM-AAAAMMDD-XXXX
+function pieza(id, donde, antes, tag = 'div') { let e = $(id); if (!e) { e = document.createElement(tag); e.id = id; donde.insertBefore(e, antes); } return e; }
+function encabezado(c) {       // datos generales como la app de inspección: insignia del maestro, ID de registro, rango de la semana y ciclo
+  const fs = Object.keys(M.calendario).sort(), rango = fn => { const a = fs.filter(fn); return a.length ? [a[0], a[a.length - 1]] : null; };
+  const sem = c && rango(f => M.calendario[f][0] === c[0] && M.calendario[f][1] === c[1]), mes = c && rango(f => M.calendario[f][0] === c[0]);
+  const card = $('v-nuevo').firstElementChild, h2 = card.querySelector('h2'), d = String(M.fecha).slice(0, 10).split('-');
+  const tmae = pieza('tmae', h2, null, 'span'), ciclo = pieza('ciclo', card, card.querySelector('small:last-child') ? null : null, 'small');
+  const idr = pieza('idrw', card, h2.nextSibling, 'div'); idr.className = 'idreg'; if (!idr.firstChild) idr.innerHTML = '<span>ID REGISTRO</span><b id="idr"></b>';
+  card.querySelectorAll('.campo').forEach(l => { if (/^(Cuadrilla|Jefe)/.test(l.firstChild.textContent) && !l.querySelector('.tag')) l.insertBefore(Object.assign(document.createElement('span'), {className: 'tag m', textContent: 'MAESTRO'}), l.querySelector('select')); });
+  tmae.innerHTML = `<span class="tag m">MAESTRO ${d.length === 3 ? d[2] + '/' + d[1] + '/' + d[0] : ''}</span>${M.version ? ` <span class="tag">V${M.version}</span>` : ''}`;
+  $('idr').textContent = `SAM-${$('f').value.replace(/-/g, '')}-${UID.slice(0, 4).toUpperCase()}`;
+  ciclo.style.cssText = 'color:var(--gris)'; ciclo.innerHTML = c ? `<b>Semana ${c[1]}</b> (${corto(sem[0])} – ${corto(sem[1])}) · Ciclo ${c[0]}: ${mes[0]} a ${mes[1]}${M.actualizado_por ? ` · Maestro actualizado por ${esc(M.actualizado_por)} el ${String(M.fecha).slice(0, 10)}` : ''}`
+    : 'El turno noche lleva la fecha del día en que empieza.';
+}
 function info() {
   const c = M.calendario[$('f').value];
   const j = M.jefes.find(x => x.id === $('j').value), cu = M.cuadrillas.find(x => x.id === $('c').value);
   $('ch1').textContent = `${$('f').value} · ${$('t').value || '—'}`; $('ch2').textContent = cu ? cu.nombre : 'Sin cuadrilla';
   $('info').textContent = c ? `${c[0]} · Semana ${c[1]} (${c[2].toLowerCase()})` : 'Fecha fuera del calendario';
   $('mest').className = 'aviso ' + (c ? 'info' : 'warn'); $('mest').innerHTML = `Maestro del <b>${esc(M.fecha)}</b>${M.version ? ' · v' + M.version : ''} · ${M.labores.length} labores · ${M.grupos.length} grupos de servicio.` + (c ? '' : '<br>La fecha elegida está fuera del calendario: cargue un maestro más reciente.');
+  encabezado(c);
   const plan = (c && M.plan[`${c[0]}-S${c[1]}`]) || [];
-  $('dl').innerHTML = (plan.length ? plan : M.labores).map(l => `<option value="${esc(l)}">`).join('');
+  const lista = plan.length ? plan : M.labores, src = c && (M.plan_src || {})[`${c[0]}-S${c[1]}`];
+  $('dl').innerHTML = lista.map(l => `<option value="${esc(l)}" label="${esc((M.desc || {})[l] || '')}">`).join('');   // código — descripción (como la app de inspección)
+  document.querySelectorAll('input[data-k=labor]').forEach(i => { i.placeholder = `Buscar labor… (${lista.length} ${plan.length ? 'del plan' : 'labores'})`; });
+  document.querySelectorAll('.lb-src').forEach(b => { b.textContent = src || ''; b.hidden = !src; });
 }
 
 /* ---------- actividades (los campos salen del maestro: hoja GrupoCampo) ---------- */
@@ -63,12 +82,13 @@ function pintar(d) {
       <input type="file" accept="image/*" capture="environment" hidden class="fc"><input type="file" accept="image/*" multiple hidden class="fg"><div class="mini"></div></div>`;
     const lista = {servicio: g.servicios, actividad: g.actividades, motivo: g.motivos, item: g.items, estado: M.estados, sistema_bombeo: M.sistemas_bombeo}[n];
     const ctl = lista ? (lista.length <= 6 ? chips(n, lista) : `<select data-k="${n}">${opts(lista)}</select>`)
-      : n === 'labor' ? `<input data-k="labor" list="dl" placeholder="Escriba para buscar" autocomplete="off">`
+      : n === 'labor' ? `<div class="labor"><input data-k="labor" list="dl" placeholder="Buscar labor…" autocomplete="off"><button type="button" class="btn bl" title="Buscar labor por código RP / CX">🔎 RP · CX</button></div>`
       : n === 'cantidad' ? `<input data-k="cantidad" type="number" inputmode="decimal" min="0" step="any" value="${esc(c.defecto || '')}">`
       : n === 'observaciones' ? `<textarea data-k="observaciones" rows="2"></textarea>` : `<input data-k="${n}">`;
-    return lista && lista.length <= 6 ? `<div class="campo">${et}${ctl}</div>` : `<label class="campo">${et} ${n === 'cantidad' ? `<small>(${g.unidad === 'M' ? 'metros' : 'unidades'})</small>` : ''}${ctl}</label>`;
+    return lista && lista.length <= 6 ? `<div class="campo">${et}${ctl}</div>` : `<label class="campo">${et}${n === 'labor' ? ' <span class="lb-src" hidden></span>' : ''} ${n === 'cantidad' ? `<small>(${g.unidad === 'M' ? 'metros' : 'unidades'})</small>` : ''}${ctl}</label>`;
   }).join('');
-  d.querySelector('.campos').innerHTML = html;
+  d.querySelector('.campos').innerHTML = html; if (M.fecha) info();
+  d.querySelectorAll('.bl').forEach(b => b.onclick = () => abrirBuscador(b.previousElementSibling, refrescar));
   const fc = d.querySelector('.fc'); if (!fc) return;
   d.querySelector('.cam').onclick = () => fc.click(); d.querySelector('.gal').onclick = () => d.querySelector('.fg').click();
   fc.onchange = d.querySelector('.fg').onchange = e => { addFotos(d, [...e.target.files]); e.target.value = ''; };
@@ -120,7 +140,7 @@ function recoger(final) {
   if (lineas.length && $('sinact').checked) return {error: 'desmarcar «Turno sin actividad» (hay actividades)'};
   if (!firmado) return {error: 'la firma del jefe de turno'};
   if (!final) return {};
-  return {reporte: {uuid: crypto.randomUUID(), fecha_turno: $('f').value, turno: $('t').value, cuadrilla: $('c').value, jefe: $('j').value,
+  return {reporte: {uuid: UID, id_registro: $('idr').textContent, fecha_turno: $('f').value, turno: $('t').value, cuadrilla: $('c').value, jefe: $('j').value,
     observaciones: $('obs').value.trim(), firma: cv.toDataURL('image/png'), lineas, guardado: new Date().toISOString()}};
 }
 function refrescar() {
@@ -137,8 +157,8 @@ async function lista() { const c = await colaTodos(); await contar();
   $('lista').innerHTML = c.length ? c.map(r => `<li class="item"><div class="t"><span>${esc(r.fecha_turno)} · ${esc(r.turno)}</span><span class="est">POR ENVIAR</span></div><div class="m">${esc((M.jefes.find(j => j.id === r.jefe) || {nombre: r.jefe}).nombre)} · ${esc(r.cuadrilla)}</div><div class="m">${r.lineas.length ? r.lineas.map(l => esc((M.grupos.find(g => g.id === l.grupo) || {nombre: l.grupo}).nombre)).join(', ') : 'Turno sin actividad'}</div></li>`).join('') : '<li class="aviso info">No hay reportes pendientes.</li>'; }
 $('guardar').onclick = async () => {
   const r = recoger(true); if (r.error) return msg('Falta: ' + r.error, false);
-  await colaPut(r.reporte);
-  $('lineas').innerHTML = ''; agregar(); $('obs').value = ''; $('sinact').checked = false; limpiarFirma(); refrescar(); contar();
+  await colaPut(r.reporte); UID = crypto.randomUUID();      // el siguiente reporte lleva otro ID
+  $('lineas').innerHTML = ''; agregar(); $('obs').value = ''; $('sinact').checked = false; limpiarFirma(); info(); refrescar(); contar();
   msg('Reporte guardado ✔ Envíelo desde «Pendientes» cuando tenga señal.', true); vista('cola');
 };
 $('exp').onclick = async () => {
